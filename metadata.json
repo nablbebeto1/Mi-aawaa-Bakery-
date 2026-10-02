@@ -1,0 +1,6 @@
+{
+  "name": "Mi'aawaa Bakery Management System",
+  "description": "Multi-branch bakery management system for Coka and Mizan branches, supporting production, bread distribution, sales closing, cash handover reconciliation, ingredient inventory, and owner-administered accounts in English, Afaan Oromo, and Amharic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
