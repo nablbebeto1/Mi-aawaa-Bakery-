@@ -26,6 +26,10 @@ export const AuditLogsPage: React.FC = () => {
 
   useEffect(() => {
     setLogs(storage.getAuditLogs());
+    const unsubscribe = storage.subscribe(() => {
+      setLogs(storage.getAuditLogs());
+    });
+    return unsubscribe;
   }, []);
 
   const filteredLogs = logs.filter((log) => {

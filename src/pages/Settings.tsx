@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Upload,
   Trash2,
@@ -14,7 +14,13 @@ import {
   Boxes,
   Edit2,
   Check,
-  Tag
+  Tag,
+  Sparkles,
+  Database,
+  ShieldAlert,
+  Server,
+  Power,
+  X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -42,8 +48,73 @@ export const SettingsPage: React.FC = () => {
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [editPriceValue, setEditPriceValue] = useState<number>(0);
 
+  // System Configuration & Demo Mode states (Admin Only)
+  const [isDemoActive, setIsDemoActive] = useState<boolean>(storage.isDemoMode());
+  const [selectedDemoMode, setSelectedDemoMode] = useState<boolean>(storage.isDemoMode());
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  const [confirmUnderstood, setConfirmUnderstood] = useState<boolean>(false);
+  const [isSwitchingMode, setIsSwitchingMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = storage.subscribe(() => {
+      setProducts(storage.getProducts());
+      const updated = storage.getSettings();
+      setBakeryName(updated.bakeryName);
+      setDefaultLang(updated.defaultLanguage);
+      setTimezone(updated.businessTimezone);
+      setCurrency(updated.currency);
+      setIsDemoActive(storage.isDemoMode());
+    });
+    return unsubscribe;
+  }, []);
+
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleInitiateModeSwitch = () => {
+    setStatusMessage(null);
+    if (!isOwner || !currentUser) {
+      setStatusMessage({ type: 'error', text: 'Unauthorized: Only the System Administrator can modify Demo Mode.' });
+      return;
+    }
+    if (selectedDemoMode === isDemoActive) {
+      setStatusMessage({
+        type: 'success',
+        text: `The system is already running in ${isDemoActive ? 'Demo Mode' : 'Production Mode'}. No changes required.`
+      });
+      return;
+    }
+    if (storage.getSyncStatus().isSyncing) {
+      setStatusMessage({
+        type: 'error',
+        text: 'A data synchronization or transaction is currently in progress. Please wait for operations to complete before switching modes.'
+      });
+      return;
+    }
+    setConfirmUnderstood(false);
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmModeSwitch = async () => {
+    if (!currentUser) return;
+    setIsSwitchingMode(true);
+    setStatusMessage(null);
+
+    try {
+      await storage.toggleDemoMode(selectedDemoMode, currentUser);
+      setShowConfirmModal(false);
+      setStatusMessage({
+        type: 'success',
+        text: `System environment successfully switched to ${selectedDemoMode ? 'DEMO MODE' : 'PRODUCTION MODE'}. Reloading application environment...`
+      });
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err.message || 'Failed to switch data environment.' });
+      setIsSwitchingMode(false);
+    }
+  };
 
   const handleStartEditPrice = (prod: Product) => {
     setEditingProductId(prod.id);
@@ -183,6 +254,217 @@ export const SettingsPage: React.FC = () => {
             <AlertTriangle size={16} className="text-red-600 shrink-0" />
           )}
           <span>{statusMessage.text}</span>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* ADMIN SETTINGS → SYSTEM CONFIGURATION (DEMO MODE & ENVIRONMENT)     */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="bg-white border-2 border-stone-200 rounded-2xl p-6 shadow-2xs space-y-5">
+        <div className="flex items-center justify-between pb-4 border-b border-stone-100">
+          <div className="flex items-center gap-2.5">
+            <Server className="text-amber-700" size={20} />
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-stone-900">
+                  Admin Settings → System Configuration
+                </h2>
+                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                  isDemoActive
+                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                    : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                }`}>
+                  {isDemoActive ? 'Demo Mode: ON' : 'Demo Mode: OFF'}
+                </span>
+              </div>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Configure application runtime mode, isolate demonstration data, and control database environments.
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200">
+            {isOwner ? '👑 Administrator Authorized' : '🔒 Restricted (Admin Only)'}
+          </span>
+        </div>
+
+        {/* Current Mode Status Display */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className={`p-4 rounded-xl border ${
+            isDemoActive
+              ? 'bg-amber-50/70 border-amber-300 text-amber-950'
+              : 'bg-stone-50 border-stone-200 text-stone-800'
+          }`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                Current Mode Status
+              </span>
+              <span className={`w-2.5 h-2.5 rounded-full ${isDemoActive ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+            </div>
+            <div className="mt-2 text-base font-black flex items-center gap-1.5">
+              {isDemoActive ? (
+                <>
+                  <Sparkles size={18} className="text-amber-600" />
+                  <span>DEMO MODE ACTIVE</span>
+                </>
+              ) : (
+                <>
+                  <Database size={18} className="text-emerald-700" />
+                  <span>PRODUCTION MODE ACTIVE</span>
+                </>
+              )}
+            </div>
+            <p className="text-xs mt-1.5 leading-relaxed text-stone-600">
+              {isDemoActive
+                ? 'The application is running in the isolated demonstration environment (miaawaa_demo.db). Sample transactions and mock customers do not affect real bakery records or financial ledgers.'
+                : 'The application is connected to the real production database (miaawaa.db). Actual business records, inventory counts, and cash reconciliation are live.'}
+            </p>
+          </div>
+
+          {/* Mode Switcher Controls (Admin only) */}
+          <div className="p-4 bg-stone-50/80 rounded-xl border border-stone-200 flex flex-col justify-between">
+            <div>
+              <span className="text-xs font-bold text-stone-700 block mb-2">
+                Configure Environment Setting:
+              </span>
+              {isOwner ? (
+                <div className="space-y-2">
+                  <label className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                    !selectedDemoMode
+                      ? 'bg-white border-emerald-500 shadow-2xs font-bold text-stone-900'
+                      : 'bg-stone-100/70 border-stone-200 text-stone-600 hover:bg-stone-100'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="demoModeSetting"
+                      checked={!selectedDemoMode}
+                      onChange={() => setSelectedDemoMode(false)}
+                      className="text-amber-700 focus:ring-amber-500"
+                    />
+                    <div className="text-xs">
+                      <div>Demo Mode: <strong>OFF</strong> (Production Mode)</div>
+                      <div className="text-[10px] text-stone-500 font-normal">Real business transactions & live SQLite database</div>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                    selectedDemoMode
+                      ? 'bg-amber-50 border-amber-500 shadow-2xs font-bold text-amber-950'
+                      : 'bg-stone-100/70 border-stone-200 text-stone-600 hover:bg-stone-100'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="demoModeSetting"
+                      checked={selectedDemoMode}
+                      onChange={() => setSelectedDemoMode(true)}
+                      className="text-amber-700 focus:ring-amber-500"
+                    />
+                    <div className="text-xs">
+                      <div>Demo Mode: <strong>ON</strong> (Demonstration Mode)</div>
+                      <div className="text-[10px] text-amber-800 font-normal">Isolated sample data with persistent DEMO banner</div>
+                    </div>
+                  </label>
+                </div>
+              ) : (
+                <div className="p-3 bg-stone-100 rounded-xl text-xs text-stone-500 font-medium">
+                  🔒 Manager role does not have authorization to toggle Demo Mode or modify system configuration.
+                </div>
+              )}
+            </div>
+
+            {isOwner && (
+              <div className="mt-4 pt-3 border-t border-stone-200 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleInitiateModeSwitch}
+                  disabled={selectedDemoMode === isDemoActive}
+                  className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer ${
+                    selectedDemoMode === isDemoActive
+                      ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                      : 'bg-stone-900 hover:bg-black text-white'
+                  }`}
+                >
+                  <Power size={14} />
+                  <span>Save and Apply Environment Changes</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-lg w-full rounded-2xl shadow-xl border border-stone-300 p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-100 text-amber-800 shrink-0">
+                <ShieldAlert size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-stone-900">
+                  Confirm Data Environment Switch
+                </h3>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Admin Action: Switch active system mode to{' '}
+                  <strong className="text-amber-900 font-bold uppercase">
+                    {selectedDemoMode ? 'Demo Mode (ON)' : 'Production Mode (OFF)'}
+                  </strong>
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 text-xs text-stone-700 space-y-2 leading-relaxed">
+              <p className="font-semibold text-stone-900">
+                Important mode-switching safeguards and warnings:
+              </p>
+              <ul className="list-disc pl-4 space-y-1 text-[11px] text-stone-600">
+                <li>
+                  <strong>Environment isolation:</strong>{' '}
+                  {selectedDemoMode
+                    ? 'Demo Mode utilizes an isolated dataset (miaawaa_demo.db). No test sales, cash collections, or inventory movements will contaminate production finances.'
+                    : 'Disabling Demo Mode returns the system to the live production database. Production data is intact and demo records are never copied into production.'}
+                </li>
+                <li>
+                  <strong>Device session refresh:</strong> The application will automatically reload across all connected devices so all pages use the new environment.
+                </li>
+                <li>
+                  <strong>Operation safeguard:</strong> Please ensure no transactions, production batches, or daily closings are currently being submitted by staff.
+                </li>
+                <li>
+                  <strong>Audit log:</strong> An immutable audit-log entry will be recorded documenting who switched the mode, timestamp, and previous/new settings.
+                </li>
+              </ul>
+            </div>
+
+            <label className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 text-xs font-semibold text-amber-900 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={confirmUnderstood}
+                onChange={(e) => setConfirmUnderstood(e.target.checked)}
+                className="rounded-sm border-stone-300 text-amber-700 focus:ring-amber-500"
+              />
+              <span>I confirm that no critical transaction is currently in progress and agree to switch environments.</span>
+            </label>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-100">
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(false)}
+                disabled={isSwitchingMode}
+                className="px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmModeSwitch}
+                disabled={!confirmUnderstood || isSwitchingMode}
+                className="px-5 py-2 text-xs font-bold text-white bg-amber-700 hover:bg-amber-800 disabled:opacity-50 rounded-xl transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+              >
+                {isSwitchingMode ? 'Switching Environment...' : 'Confirm & Switch Mode'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

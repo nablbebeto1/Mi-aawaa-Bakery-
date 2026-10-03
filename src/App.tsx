@@ -22,6 +22,9 @@ import { ReportsPage } from './pages/Reports';
 import { UserManagement } from './pages/UserManagement';
 import { SettingsPage } from './pages/Settings';
 import { AuditLogsPage } from './pages/AuditLogs';
+import { ChangeInitialPassword } from './pages/ChangeInitialPassword';
+import { ChangePasswordPage } from './pages/ChangePassword';
+import { DemoModeBanner } from './components/common/DemoModeBanner';
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, currentUser, isOwner, isManager, isProduction, isSales } = useAuth();
@@ -40,6 +43,12 @@ const AppContent: React.FC = () => {
 
   if (!isAuthenticated || !currentUser) {
     return <Login />;
+  }
+
+  // Mandatory first-login password change safeguard:
+  // Admin cannot access dashboard or system pages until password is changed!
+  if (currentUser.mustChangePassword) {
+    return <ChangeInitialPassword onSuccess={() => setCurrentModule('dashboard')} />;
   }
 
   // Security guard: If a non-owner somehow lands on 'users', redirect to dashboard
@@ -83,33 +92,41 @@ const AppContent: React.FC = () => {
         return <SettingsPage />;
       case 'auditLogs':
         return <AuditLogsPage />;
+      case 'adminProfile':
+        return <ChangePasswordPage />;
       default:
         return <Dashboard onNavigate={(mod) => setCurrentModule(mod)} />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 flex">
-      {/* Sidebar */}
-      <Sidebar
-        currentModule={currentModule}
-        onSelectModule={setCurrentModule}
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-      />
+    <div className="min-h-screen bg-stone-50 text-stone-900 flex flex-col">
+      {/* Persistent DEMO MODE Banner throughout the application */}
+      <DemoModeBanner onNavigateToSettings={() => setCurrentModule('settings')} />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-64">
-        {/* Top Navigation Bar */}
-        <Header
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          activeModuleName={t(`nav.${currentModule}` as any, currentModule)}
+      <div className="flex-1 flex min-h-0">
+        {/* Sidebar */}
+        <Sidebar
+          currentModule={currentModule}
+          onSelectModule={setCurrentModule}
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
         />
 
-        {/* Viewport Content */}
-        <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
-          {renderModule()}
-        </main>
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col min-w-0 lg:pl-64">
+          {/* Top Navigation Bar */}
+          <Header
+            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+            activeModuleName={t(`nav.${currentModule}` as any, currentModule)}
+            onNavigateToProfile={() => setCurrentModule('adminProfile')}
+          />
+
+          {/* Viewport Content */}
+          <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+            {renderModule()}
+          </main>
+        </div>
       </div>
 
       {/* Logout confirmation modal */}

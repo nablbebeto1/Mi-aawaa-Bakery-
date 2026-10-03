@@ -48,6 +48,10 @@ export const CustomerBalancesPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const unsubscribe = storage.subscribe(() => {
+      loadData();
+    });
+    return unsubscribe;
   }, [activeBranch]);
 
   const loadData = () => {

@@ -1,18 +1,36 @@
-import React from 'react';
-import { LogOut, Globe, Building2, User as UserIcon, Menu } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { LogOut, Globe, Building2, User as UserIcon, Menu, RefreshCw, Database } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { BakeryLogo } from '../common/BakeryLogo';
 import { Language } from '../../i18n';
+import { storage } from '../../services/storage';
 
 interface HeaderProps {
   onToggleSidebar?: () => void;
   activeModuleName?: string;
+  onNavigateToProfile?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, activeModuleName }) => {
+export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, activeModuleName, onNavigateToProfile }) => {
   const { currentUser, requestLogout } = useAuth();
   const { language, setLanguage, supportedLanguages, t } = useLanguage();
+  const [syncStatus, setSyncStatus] = useState(storage.getSyncStatus());
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const isDemo = storage.isDemoMode();
+
+  useEffect(() => {
+    const unsub = storage.subscribe(() => {
+      setSyncStatus(storage.getSyncStatus());
+    });
+    return unsub;
+  }, []);
+
+  const handleManualSync = async () => {
+    setIsManualSyncing(true);
+    await storage.syncFromServer();
+    setTimeout(() => setIsManualSyncing(false), 500);
+  };
 
   const getBranchLabel = () => {
     if (!currentUser) return '';
@@ -52,10 +70,29 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, activeModuleNam
         )}
       </div>
 
-      {/* Zone 2: Branch scope & Context badge */}
-      <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-amber-50/80 rounded-full border border-amber-200/60 text-xs text-amber-900 font-medium">
-        <Building2 size={13} className="text-amber-700" />
-        <span className="truncate max-w-[200px]">{getBranchLabel()}</span>
+      {/* Zone 2: Branch scope & Context badge & Sync status */}
+      <div className="hidden md:flex items-center gap-2.5">
+        <div className="flex items-center gap-2 px-3 py-1 bg-amber-50/80 rounded-full border border-amber-200/60 text-xs text-amber-900 font-medium">
+          <Building2 size={13} className="text-amber-700" />
+          <span className="truncate max-w-[180px]">{getBranchLabel()}</span>
+        </div>
+
+        {/* Database & Multi-Device Realtime Sync Indicator */}
+        <button
+          onClick={handleManualSync}
+          disabled={syncStatus.isSyncing || isManualSyncing}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border border-stone-200 hover:border-amber-400 bg-white hover:bg-stone-50 transition-all cursor-pointer shadow-2xs"
+          title={`Centralized SQLite WAL database persistence. Last synced: ${syncStatus.lastSyncTime || 'active'}. Click to force resync.`}
+        >
+          <span className={`w-2 h-2 rounded-full ${syncStatus.isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+          <span className="font-medium text-stone-600">
+            {syncStatus.isSyncing || isManualSyncing ? 'Syncing...' : (syncStatus.isConnected ? 'Live Synced' : 'Cached')}
+          </span>
+          <RefreshCw
+            size={11}
+            className={`text-stone-400 ${(syncStatus.isSyncing || isManualSyncing) ? 'animate-spin text-amber-700' : ''}`}
+          />
+        </button>
       </div>
 
       {/* Zone 3: Language Selector & User Profile & Logout */}
@@ -77,9 +114,20 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, activeModuleNam
           </select>
         </div>
 
+        {/* Demo Mode Pill */}
+        {isDemo && (
+          <div className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500 text-stone-950 font-black text-[10px] tracking-wider uppercase border border-amber-600 shadow-2xs">
+            <span>DEMO MODE</span>
+          </div>
+        )}
+
         {/* User Badge */}
         {currentUser && (
-          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 bg-stone-100 rounded-lg text-xs">
+          <button
+            onClick={onNavigateToProfile}
+            className="hidden sm:flex items-center gap-2 px-2.5 py-1 bg-stone-100 hover:bg-stone-200/80 rounded-lg text-xs transition-colors cursor-pointer border border-transparent hover:border-stone-300"
+            title="View Profile & Change Password"
+          >
             <UserIcon size={14} className="text-stone-500" />
             <div className="flex flex-col text-left">
               <span className="font-semibold text-stone-800 leading-none">
@@ -89,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, activeModuleNam
                 {getRoleLabel()}
               </span>
             </div>
-          </div>
+          </button>
         )}
 
         {/* Logout Button */}

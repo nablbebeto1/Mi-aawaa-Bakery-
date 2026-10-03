@@ -38,6 +38,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     loadDashboardData();
+    const unsubscribe = storage.subscribe(() => {
+      loadDashboardData();
+    });
+    return unsubscribe;
   }, []);
 
   const loadDashboardData = () => {

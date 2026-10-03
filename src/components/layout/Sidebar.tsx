@@ -17,6 +17,7 @@ import {
   UserCheck,
   Sliders,
   History,
+  KeyRound,
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -40,7 +41,8 @@ export type ActiveModule =
   | 'reports'
   | 'users'
   | 'settings'
-  | 'auditLogs';
+  | 'auditLogs'
+  | 'adminProfile';
 
 interface SidebarProps {
   currentModule: ActiveModule;
@@ -173,6 +175,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: t('nav.auditLogs'),
       icon: History,
       visible: isOwner || isManager
+    },
+    // Admin Profile → Change Password
+    {
+      id: 'adminProfile',
+      label: isOwner ? 'Admin Profile → Password' : 'My Profile → Password',
+      icon: KeyRound,
+      visible: true
     }
   ];
 
@@ -251,19 +260,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* User Card footer */}
         <div className="p-3 border-t border-stone-800 bg-stone-950/60">
-          <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg">
-            <div className="w-8 h-8 rounded-full bg-amber-900/60 border border-amber-700/50 flex items-center justify-center text-amber-300 text-xs font-bold shrink-0">
+          <button
+            onClick={() => handleSelect('adminProfile')}
+            className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-stone-800/80 transition-colors text-left cursor-pointer group"
+            title="Open Admin Profile & Change Password"
+          >
+            <div className="w-8 h-8 rounded-full bg-amber-900/60 border border-amber-700/50 flex items-center justify-center text-amber-300 text-xs font-bold shrink-0 group-hover:border-amber-400">
               {currentUser.displayName.charAt(0)}
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-semibold text-stone-200 truncate">
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-xs font-semibold text-stone-200 truncate group-hover:text-white">
                 {currentUser.displayName}
               </span>
               <span className="text-[10px] text-amber-400/90 font-medium truncate">
                 @{currentUser.username} · {t(`role.${currentUser.role}`)}
               </span>
             </div>
-          </div>
+            <KeyRound size={13} className="text-stone-500 group-hover:text-amber-400 shrink-0" />
+          </button>
         </div>
       </aside>
     </>

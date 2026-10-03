@@ -33,6 +33,10 @@ export const SuppliersPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const unsubscribe = storage.subscribe(() => {
+      loadData();
+    });
+    return unsubscribe;
   }, []);
 
   const loadData = () => {

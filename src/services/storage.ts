@@ -42,6 +42,19 @@ const STORAGE_KEYS = {
 // We also support runtime hashing for all user creations/resets
 const INITIAL_USERS: User[] = [
   {
+    id: 'usr_admin_init',
+    username: 'admin',
+    displayName: 'System Administrator (Admin)',
+    passwordHash: 'a717b2c1993da0dc951b0a9cecc309a84930ab36cfeb9d43ac819df2ff989873', // admin:c0ka_salt_admin_init
+    salt: 'c0ka_salt_admin_init',
+    role: 'owner',
+    branch: 'both',
+    status: 'active',
+    createdAt: '2026-10-03T08:00:00Z',
+    lastLoginAt: null,
+    mustChangePassword: true
+  },
+  {
     id: 'usr_owner_1',
     username: 'owner',
     displayName: 'Alemayehu Tadesse (Owner)',
@@ -891,8 +904,266 @@ function setStored<T>(key: string, value: T): void {
 }
 
 class StorageService {
+  private subscribers: Set<() => void> = new Set();
+  private isSyncing: boolean = false;
+  private lastSyncTime: string | null = null;
+  private isConnected: boolean = false;
+  private eventSource: any = null;
+
   constructor() {
     this.ensureInitialized();
+    if (typeof window !== 'undefined') {
+      setTimeout(() => this.initServerSync(), 50);
+    }
+  }
+
+  public subscribe(callback: () => void): () => void {
+    this.subscribers.add(callback);
+    return () => {
+      this.subscribers.delete(callback);
+    };
+  }
+
+  public notifySubscribers(): void {
+    this.subscribers.forEach((cb) => {
+      try {
+        cb();
+      } catch (err) {
+        console.warn('[Storage] Subscriber callback error:', err);
+      }
+    });
+  }
+
+  public getSyncStatus(): { isConnected: boolean; isSyncing: boolean; lastSyncTime: string | null } {
+    return {
+      isConnected: this.isConnected,
+      isSyncing: this.isSyncing,
+      lastSyncTime: this.lastSyncTime
+    };
+  }
+
+  public async syncFromServer(): Promise<boolean> {
+    if (this.isSyncing) return true;
+    this.isSyncing = true;
+    this.notifySubscribers();
+
+    try {
+      const res = await fetch('/api/sync/all');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (data) {
+        if (data.mode) {
+          localStorage.setItem('miaawaa_system_mode', data.mode);
+        }
+
+        if (Array.isArray(data.users) && data.users.length > 0) {
+          // Merge users with passwords from local storage if available so offline auth works
+          const localUsers = getStored<User[]>(STORAGE_KEYS.USERS, []);
+          const mergedUsers = data.users.map((u: any) => {
+            const loc = localUsers.find(lu => lu.id === u.id);
+            return {
+              ...u,
+              mustChangePassword: u.mustChangePassword !== undefined ? Boolean(u.mustChangePassword) : (loc ? loc.mustChangePassword : false),
+              passwordHash: loc ? loc.passwordHash : u.passwordHash,
+              salt: loc ? loc.salt : u.salt
+            };
+          });
+          setStored(STORAGE_KEYS.USERS, mergedUsers);
+        }
+
+        if (Array.isArray(data.products) && data.products.length > 0) setStored(STORAGE_KEYS.PRODUCTS, data.products);
+        if (Array.isArray(data.ingredients) && data.ingredients.length > 0) setStored(STORAGE_KEYS.INGREDIENTS, data.ingredients);
+        if (Array.isArray(data.recipes) && data.recipes.length > 0) setStored(STORAGE_KEYS.RECIPES, data.recipes);
+        if (Array.isArray(data.productionBatches)) setStored(STORAGE_KEYS.PRODUCTION, data.productionBatches);
+        if (Array.isArray(data.deliveries)) setStored(STORAGE_KEYS.DELIVERIES, data.deliveries);
+        if (Array.isArray(data.sales)) setStored(STORAGE_KEYS.SALES, data.sales);
+        if (Array.isArray(data.dailyClosings)) setStored(STORAGE_KEYS.CLOSINGS, data.dailyClosings);
+        if (Array.isArray(data.cashHandovers)) setStored(STORAGE_KEYS.HANDOVERS, data.cashHandovers);
+        if (Array.isArray(data.purchases)) setStored(STORAGE_KEYS.PURCHASES, data.purchases);
+        if (Array.isArray(data.suppliers)) setStored(STORAGE_KEYS.SUPPLIERS, data.suppliers);
+        if (Array.isArray(data.expenses)) setStored(STORAGE_KEYS.EXPENSES, data.expenses);
+        if (Array.isArray(data.auditLogs)) setStored(STORAGE_KEYS.AUDIT_LOGS, data.auditLogs);
+        if (data.settings) setStored(STORAGE_KEYS.SETTINGS, data.settings);
+
+        this.isConnected = true;
+        this.lastSyncTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        this.notifySubscribers();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn('[Sync] Sync from server notice (working in local cache mode):', err);
+      this.isConnected = false;
+      this.notifySubscribers();
+      return false;
+    } finally {
+      this.isSyncing = false;
+      this.notifySubscribers();
+    }
+  }
+
+  public initServerSync(): void {
+    // 1. Initial sync
+    this.syncFromServer();
+
+    // 2. Set up SSE connection
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      try {
+        if (this.eventSource) {
+          this.eventSource.close();
+        }
+        const es = new EventSource('/api/realtime/stream');
+        this.eventSource = es;
+        es.onopen = () => {
+          this.isConnected = true;
+          this.notifySubscribers();
+        };
+        es.addEventListener('sync', (evt) => {
+          try {
+            this.syncFromServer();
+          } catch (e) {
+            console.warn('[SSE] sync event error:', e);
+          }
+        });
+        es.addEventListener('mode_change', (evt: any) => {
+          try {
+            console.log('[SSE] System environment mode changed on server, resynchronizing...');
+            if (typeof window !== 'undefined') {
+              window.location.reload();
+            }
+          } catch (e) {
+            console.warn('[SSE] mode_change event error:', e);
+          }
+        });
+        es.onerror = () => {
+          this.isConnected = false;
+          this.notifySubscribers();
+        };
+      } catch (e) {
+        console.warn('[SSE] EventSource init failed:', e);
+      }
+    }
+
+    // 3. Listen for window focus & network restoration
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', () => this.syncFromServer());
+      window.addEventListener('online', () => this.syncFromServer());
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // DEMO MODE & SYSTEM ENVIRONMENT CONTROLS (ADMIN ONLY)
+  // ----------------------------------------------------------------------
+  public isDemoMode(): boolean {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('miaawaa_system_mode') === 'demo';
+    }
+    return false;
+  }
+
+  public getSystemMode(): 'production' | 'demo' {
+    return this.isDemoMode() ? 'demo' : 'production';
+  }
+
+  public async toggleDemoMode(enabled: boolean, actor: User): Promise<{ success: boolean; mode: string; isDemoMode: boolean }> {
+    if (actor.role !== 'owner' && actor.username !== 'admin') {
+      throw new Error('Unauthorized: Only the System Administrator can enable or disable Demo Mode.');
+    }
+    if (this.isSyncing) {
+      throw new Error('Cannot switch mode while a synchronization or transaction is currently in progress.');
+    }
+
+    const res = await fetch('/api/admin/demo-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, actorId: actor.id })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to toggle Demo Mode on server.');
+    }
+
+    localStorage.setItem('miaawaa_system_mode', data.mode);
+    this.notifySubscribers();
+    return data;
+  }
+
+  // ----------------------------------------------------------------------
+  // SECURE AUTHENTICATION & PASSWORD MANAGEMENT
+  // ----------------------------------------------------------------------
+  public async changeInitialPassword(
+    username: string,
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string
+  ): Promise<{ success: boolean; user?: any; error?: string }> {
+    const res = await fetch('/api/auth/change-initial-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, currentPassword, newPassword, confirmPassword })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to change initial admin password.');
+    }
+    return data;
+  }
+
+  public async changePassword(
+    actorId: string,
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const res = await fetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actorId, currentPassword, newPassword, confirmPassword })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to change password.');
+    }
+    return data;
+  }
+
+  public async apiPost(url: string, body: any): Promise<any> {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.warn(`[API POST ${url}]`, err);
+        return null;
+      }
+      return await res.json().catch(() => null);
+    } catch (e) {
+      console.warn(`[API POST ${url}] network error:`, e);
+      return null;
+    }
+  }
+
+  public async apiPut(url: string, body: any): Promise<any> {
+    try {
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.warn(`[API PUT ${url}]`, err);
+        return null;
+      }
+      return await res.json().catch(() => null);
+    } catch (e) {
+      console.warn(`[API PUT ${url}] network error:`, e);
+      return null;
+    }
   }
 
   public ensureInitialized(): void {
@@ -1035,6 +1306,9 @@ class StorageService {
       details: `Updated settings: ${Object.keys(settings).join(', ')}`
     });
 
+    this.apiPut('/api/settings', { settings: updated, actorId: actor.id });
+    this.notifySubscribers();
+
     return updated;
   }
 
@@ -1119,6 +1393,17 @@ class StorageService {
       targetId: newUser.id,
       details: `Created user ${newUser.username} (${newUser.displayName}) with role ${newUser.role} on branch ${newUser.branch}`
     });
+
+    this.apiPost('/api/users', {
+      username: newUser.username,
+      displayName: newUser.displayName,
+      passwordHash: newUser.passwordHash,
+      salt: newUser.salt,
+      role: newUser.role,
+      branch: newUser.branch,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
 
     return newUser;
   }
@@ -1208,6 +1493,15 @@ class StorageService {
       details: `Updated user ${target.username}: ${JSON.stringify(updates)}`
     });
 
+    this.apiPut(`/api/users/${target.id}`, {
+      displayName: target.displayName,
+      role: target.role,
+      branch: target.branch,
+      status: target.status,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return target;
   }
 
@@ -1235,6 +1529,13 @@ class StorageService {
       targetId: target.id,
       details: `Password securely reset for user "${target.username}"`
     });
+
+    this.apiPost(`/api/users/${target.id}/reset-password`, {
+      newPasswordHash: newHash,
+      newSalt: newSalt,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
   }
 
   public recordLogin(userId: string): void {
@@ -1293,6 +1594,12 @@ class StorageService {
       details: `Updated unit price for "${prod.name.en}" (${prod.name.am} / ${prod.name.om}) from ${oldPrice} ETB to ${unitPrice} ETB`
     });
 
+    this.apiPut(`/api/products/${prod.id}/price`, {
+      unitPrice,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return prod;
   }
 
@@ -1325,6 +1632,13 @@ class StorageService {
       targetId: ingredientId,
       details: `Adjusted ${item.code} from ${oldStock} to ${item.currentStock} ${item.unit}. Reason: ${reason}`
     });
+
+    this.apiPut(`/api/ingredients/${item.id}/stock`, {
+      newStock: item.currentStock,
+      reason,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
 
     return item;
   }
@@ -1399,6 +1713,16 @@ class StorageService {
       details: `Recorded batch ${newBatch.batchNumber}: ${newBatch.totalProduced} produced, ${newBatch.rejectedQty} rejected, ${saleableQty} saleable. Ingredients deducted.`
     });
 
+    this.apiPost('/api/production-batches', {
+      productId: data.productId,
+      totalProduced: data.totalProduced,
+      rejectedQty: data.rejectedQty,
+      ingredientsUsed: data.ingredientsUsed,
+      notes: data.notes,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return newBatch;
   }
 
@@ -1463,6 +1787,16 @@ class StorageService {
       details: `Dispatched ${data.dispatchQty} loaves to ${data.toBranch} branch (${newDelivery.deliveryNumber})`
     });
 
+    this.apiPost('/api/deliveries', {
+      batchId: data.batchId,
+      productId: data.productId,
+      toBranch: data.toBranch,
+      dispatchQty: data.dispatchQty,
+      notes: data.notes,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return newDelivery;
   }
 
@@ -1509,6 +1843,14 @@ class StorageService {
       targetId: target.id,
       details: `Confirmed delivery ${target.deliveryNumber} at ${target.toBranch}: received ${data.receivedQty}, damaged/missing ${data.damagedMissingQty}`
     });
+
+    this.apiPut(`/api/deliveries/${target.id}/confirm`, {
+      receivedQty: data.receivedQty,
+      damagedMissingQty: data.damagedMissingQty,
+      notes: data.notes,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
 
     return target;
   }
@@ -1663,6 +2005,22 @@ class StorageService {
       details: `Recorded ${paymentStatus} sale ${saleNumber} at ${data.branch}: ${data.quantity} units of ${prod?.name.en || data.productId} for ${totalAmount} ETB (Paid: ${amountPaid} ETB via ${data.paymentMethod}, Remaining: ${remainingBalance} ETB)`
     });
 
+    this.apiPost('/api/sales', {
+      branch: data.branch,
+      productId: data.productId,
+      quantity: data.quantity,
+      unitPrice: data.unitPrice,
+      discount,
+      paymentMethod: data.paymentMethod,
+      paymentType: pType,
+      initialAmountPaid: data.initialAmountPaid,
+      customerName: custName,
+      customerPhone: custPhone,
+      notes: data.notes,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return newSale;
   }
 
@@ -1730,6 +2088,14 @@ class StorageService {
       targetId: newPayment.id,
       details: `Recorded subsequent payment of ${data.amount} ETB (${data.paymentMethod}) for sale ${sale.saleNumber} (${sale.customerName}). Remaining balance: ${sale.remainingBalance} ETB`
     });
+
+    this.apiPost(`/api/sales/${sale.id}/payments`, {
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      notes: data.notes,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
 
     return { sale, payment: newPayment };
   }
@@ -1867,6 +2233,15 @@ class StorageService {
       details: `Submitted daily closing for ${data.branch} branch: Counted Cash ${data.cash.actualCashCounted} ETB, Expected ${data.cash.expectedCash} ETB`
     });
 
+    this.apiPost('/api/daily-closings', {
+      branch: data.branch,
+      stockItems: data.stockItems,
+      cash: data.cash,
+      notes: data.notes,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return newClosing;
   }
 
@@ -1907,6 +2282,13 @@ class StorageService {
       details: `Production staff collected ${amountCollected} ETB from Mizan branch (now in transit to manager)`
     });
 
+    this.apiPut(`/api/cash-handovers/${target.id}/collect`, {
+      amountCollected,
+      notes,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return target;
   }
 
@@ -1938,6 +2320,13 @@ class StorageService {
       targetId: target.id,
       details: `Manager confirmed receipt of ${amountConfirmed} ETB from ${target.branch} branch`
     });
+
+    this.apiPut(`/api/cash-handovers/${target.id}/confirm`, {
+      amountConfirmed,
+      notes,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
 
     return target;
   }
@@ -2005,6 +2394,16 @@ class StorageService {
       details: `Recorded purchase ${invoiceNumber} from ${supplierName} for ${totalAmount} ETB. Inventory credited.`
     });
 
+    this.apiPost('/api/purchases', {
+      supplierId: data.supplierId,
+      supplierName,
+      items: data.items,
+      totalAmount,
+      paymentStatus: 'paid',
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return newPurchase;
   }
 
@@ -2024,6 +2423,17 @@ class StorageService {
     };
     suppliers.push(newSupplier);
     setStored(STORAGE_KEYS.SUPPLIERS, suppliers);
+
+    this.apiPost('/api/suppliers', {
+      name: supplierData.name,
+      phone: supplierData.phone,
+      email: supplierData.email,
+      address: supplierData.address,
+      supplies: supplierData.supplies,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
+
     return newSupplier;
   }
 
@@ -2077,6 +2487,16 @@ class StorageService {
       targetId: newExpense.id,
       details: `Recorded ${data.category} expense ${expenseNumber} of ${data.amount} ETB for ${data.branch} branch`
     });
+
+    this.apiPost('/api/expenses', {
+      branch: data.branch,
+      category: data.category,
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      description: data.description,
+      actorId: actor.id
+    });
+    this.notifySubscribers();
 
     return newExpense;
   }

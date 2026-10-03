@@ -71,6 +71,10 @@ export const ReportsPage: React.FC = () => {
 
   useEffect(() => {
     calculateReport();
+    const unsubscribe = storage.subscribe(() => {
+      calculateReport();
+    });
+    return unsubscribe;
   }, [selectedBranch]);
 
   const calculateReport = () => {

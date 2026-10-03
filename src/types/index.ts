@@ -16,6 +16,7 @@ export interface User {
   status: 'active' | 'inactive';
   createdAt: string;
   lastLoginAt: string | null;
+  mustChangePassword?: boolean;
 }
 
 export interface Product {

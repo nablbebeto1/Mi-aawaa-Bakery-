@@ -46,6 +46,10 @@ export const DailyClosingPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const unsubscribe = storage.subscribe(() => {
+      loadData();
+    });
+    return unsubscribe;
   }, [targetBranch]);
 
   const loadData = () => {

@@ -56,6 +56,10 @@ export const UserManagement: React.FC = () => {
 
   useEffect(() => {
     loadUsers();
+    const unsubscribe = storage.subscribe(() => {
+      loadUsers();
+    });
+    return unsubscribe;
   }, []);
 
   const loadUsers = () => {

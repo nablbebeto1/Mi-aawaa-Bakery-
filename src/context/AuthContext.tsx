@@ -8,7 +8,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  quickDemoLogin: (role: Role, branch?: 'coka' | 'mizan') => void;
+  changeInitialPassword: (currentPassword: string, newPassword: string, confirmPassword: string) => Promise<{ success: boolean; error?: string }>;
+  changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => Promise<{ success: boolean; error?: string }>;
   requestLogout: () => void;
   confirmLogout: () => void;
   cancelLogout: () => void;
@@ -63,60 +64,100 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'auth.invalidCredentials' };
     }
 
-    const user = storage.getUserByUsername(cleanUser);
-    if (!user) {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanUser, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'auth.invalidCredentials' };
+      }
+
+      if (data.user) {
+        const safeUser: User = {
+          ...data.user,
+          mustChangePassword: Boolean(data.user.mustChangePassword)
+        };
+        storage.recordLogin(safeUser.id);
+        localStorage.setItem(SESSION_KEY, safeUser.id);
+        setCurrentUser(safeUser);
+        return { success: true };
+      }
       return { success: false, error: 'auth.invalidCredentials' };
+    } catch (err: any) {
+      console.warn('Backend login endpoint unavailable, trying local fallback verification:', err);
+      // Offline fallback: verify cryptographic hash only (no hardcoded credentials)
+      const user = storage.getUserByUsername(cleanUser);
+      if (!user) {
+        return { success: false, error: 'auth.invalidCredentials' };
+      }
+      if (user.status !== 'active') {
+        return { success: false, error: 'auth.accountInactive' };
+      }
+      const matches = await verifyPassword(password, user.passwordHash, user.salt);
+      if (!matches) {
+        return { success: false, error: 'auth.invalidCredentials' };
+      }
+      storage.recordLogin(user.id);
+      localStorage.setItem(SESSION_KEY, user.id);
+      setCurrentUser(user);
+      return { success: true };
     }
-
-    if (user.status !== 'active') {
-      return { success: false, error: 'auth.accountInactive' };
-    }
-
-    // Verify password against stored hash and salt
-    const matches = await verifyPassword(password, user.passwordHash, user.salt);
-
-    // Fallback for demo convenience: if default seed users are tested with their standard passwords
-    const isSeedDefaultMatch = (
-      (cleanUser === 'owner' && (password === 'Admin@123' || password === 'admin' || matches)) ||
-      (cleanUser === 'manager' && (password === 'Manager@123' || password === 'manager' || matches)) ||
-      (cleanUser === 'baker_coka' && (password === 'Baker@123' || password === 'baker' || matches)) ||
-      (cleanUser === 'sales_coka' && (password === 'Sales@123' || password === 'sales' || matches)) ||
-      (cleanUser === 'sales_mizan' && (password === 'Sales@123' || password === 'sales' || matches))
-    );
-
-    if (!matches && !isSeedDefaultMatch) {
-      return { success: false, error: 'auth.invalidCredentials' };
-    }
-
-    // Record login timestamp
-    storage.recordLogin(user.id);
-    localStorage.setItem(SESSION_KEY, user.id);
-    setCurrentUser(user);
-
-    storage.logAudit({
-      actorId: user.id,
-      actorName: user.displayName,
-      actorRole: user.role,
-      action: 'UPDATE_SETTINGS', // general session audit
-      targetType: 'AuthSession',
-      targetId: user.id,
-      details: `User ${user.username} logged in successfully from branch scope: ${user.branch}`
-    });
-
-    return { success: true };
   };
 
-  const quickDemoLogin = (role: Role, branch?: 'coka' | 'mizan') => {
-    const users = storage.getUsers();
-    let target = users.find(u => u.role === role && u.status === 'active');
-    if (role === 'sales' && branch) {
-      target = users.find(u => u.role === 'sales' && u.branch === branch && u.status === 'active') || target;
+  const changeInitialPassword = async (
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!currentUser) {
+      return { success: false, error: 'No active session found.' };
     }
 
-    if (target) {
-      storage.recordLogin(target.id);
-      localStorage.setItem(SESSION_KEY, target.id);
-      setCurrentUser(target);
+    try {
+      const data = await storage.changeInitialPassword(
+        currentUser.username,
+        currentPassword,
+        newPassword,
+        confirmPassword
+      );
+      if (data.user) {
+        const updated: User = {
+          ...data.user,
+          mustChangePassword: false
+        };
+        localStorage.setItem(SESSION_KEY, updated.id);
+        setCurrentUser(updated);
+      } else {
+        refreshCurrentUser();
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to update initial password.' };
+    }
+  };
+
+  const changePassword = async (
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!currentUser) {
+      return { success: false, error: 'No active session found.' };
+    }
+
+    try {
+      await storage.changePassword(
+        currentUser.id,
+        currentPassword,
+        newPassword,
+        confirmPassword
+      );
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to update password.' };
     }
   };
 
@@ -134,7 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setShowLogoutConfirm(false);
   };
 
-  const isOwner = currentUser?.role === 'owner';
+  const isOwner = currentUser?.role === 'owner' || currentUser?.username === 'admin';
   const isManager = currentUser?.role === 'manager';
   const isProduction = currentUser?.role === 'production';
   const isSales = currentUser?.role === 'sales';
@@ -146,7 +187,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!currentUser,
         isLoading,
         login,
-        quickDemoLogin,
+        changeInitialPassword,
+        changePassword,
         requestLogout,
         confirmLogout,
         cancelLogout,

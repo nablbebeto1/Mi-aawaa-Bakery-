@@ -55,6 +55,10 @@ export const SalesPage: React.FC<SalesPageProps> = ({ onNavigateToBalances }) =>
 
   useEffect(() => {
     loadData();
+    const unsubscribe = storage.subscribe(() => {
+      loadData();
+    });
+    return unsubscribe;
   }, [activeBranch]);
 
   const loadData = () => {

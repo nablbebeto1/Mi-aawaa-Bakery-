@@ -33,7 +33,7 @@ export const BranchOverviewPage: React.FC = () => {
     activeStaff: 1
   });
 
-  useEffect(() => {
+  const calculateStats = () => {
     const deliveries = storage.getDeliveries();
     const sales = storage.getSales();
 
@@ -66,6 +66,14 @@ export const BranchOverviewPage: React.FC = () => {
       digitalSales: mizanRev - mizanCash,
       activeStaff: 1
     });
+  };
+
+  useEffect(() => {
+    calculateStats();
+    const unsubscribe = storage.subscribe(() => {
+      calculateStats();
+    });
+    return unsubscribe;
   }, []);
 
   return (

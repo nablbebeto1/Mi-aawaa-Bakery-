@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Lock, Eye, EyeOff, Globe, Sparkles, Building2, UserCircle } from 'lucide-react';
+import { Lock, Eye, EyeOff, Globe, Building2, UserCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { BakeryLogo } from '../components/common/BakeryLogo';
 import { Language } from '../i18n';
 
 export const Login: React.FC = () => {
-  const { login, quickDemoLogin } = useAuth();
+  const { login } = useAuth();
   const { language, setLanguage, supportedLanguages, t } = useLanguage();
 
   const [username, setUsername] = useState('');
@@ -147,84 +147,6 @@ export const Login: React.FC = () => {
               </button>
             </div>
           </form>
-
-          {/* Quick Demo Switcher Panel */}
-          <div className="mt-8 pt-6 border-t border-stone-200">
-            <div className="flex items-center gap-1.5 mb-2 text-xs font-bold text-amber-900">
-              <Sparkles size={14} className="text-amber-600" />
-              <span>{t('app.demoMode')}</span>
-            </div>
-            <p className="text-[11px] text-stone-500 mb-3">
-              {t('app.demoModeNotice')}
-            </p>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => quickDemoLogin('owner')}
-                className="p-2 text-left bg-stone-100 hover:bg-amber-100/70 border border-stone-200 hover:border-amber-300 rounded-xl transition-colors cursor-pointer group"
-              >
-                <div className="font-bold text-stone-900 group-hover:text-amber-900">
-                  👑 {t('role.owner')}
-                </div>
-                <div className="text-[10px] text-stone-500 font-mono">
-                  @owner · Both
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickDemoLogin('manager')}
-                className="p-2 text-left bg-stone-100 hover:bg-amber-100/70 border border-stone-200 hover:border-amber-300 rounded-xl transition-colors cursor-pointer group"
-              >
-                <div className="font-bold text-stone-900 group-hover:text-amber-900">
-                  📋 {t('role.manager')}
-                </div>
-                <div className="text-[10px] text-stone-500 font-mono">
-                  @manager · Both
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickDemoLogin('production')}
-                className="p-2 text-left bg-stone-100 hover:bg-amber-100/70 border border-stone-200 hover:border-amber-300 rounded-xl transition-colors cursor-pointer group"
-              >
-                <div className="font-bold text-stone-900 group-hover:text-amber-900">
-                  🥖 {t('role.production')}
-                </div>
-                <div className="text-[10px] text-stone-500 font-mono">
-                  @baker_coka · Coka
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickDemoLogin('sales', 'coka')}
-                className="p-2 text-left bg-stone-100 hover:bg-amber-100/70 border border-stone-200 hover:border-amber-300 rounded-xl transition-colors cursor-pointer group"
-              >
-                <div className="font-bold text-stone-900 group-hover:text-amber-900">
-                  🏪 Coka Sales
-                </div>
-                <div className="text-[10px] text-stone-500 font-mono">
-                  @sales_coka · Coka
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickDemoLogin('sales', 'mizan')}
-                className="col-span-2 p-2 text-left bg-stone-100 hover:bg-amber-100/70 border border-stone-200 hover:border-amber-300 rounded-xl transition-colors cursor-pointer group"
-              >
-                <div className="font-bold text-stone-900 group-hover:text-amber-900">
-                  🏬 Mizan Sales Staff
-                </div>
-                <div className="text-[10px] text-stone-500 font-mono">
-                  @sales_mizan · Mizan Branch Retail
-                </div>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

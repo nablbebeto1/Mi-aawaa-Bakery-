@@ -35,6 +35,10 @@ export const DeliveriesPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const unsubscribe = storage.subscribe(() => {
+      loadData();
+    });
+    return unsubscribe;
   }, [branchFilter]);
 
   const loadData = () => {

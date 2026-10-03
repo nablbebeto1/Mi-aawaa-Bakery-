@@ -31,6 +31,10 @@ export const PurchasesPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const unsubscribe = storage.subscribe(() => {
+      loadData();
+    });
+    return unsubscribe;
   }, []);
 
   const loadData = () => {
